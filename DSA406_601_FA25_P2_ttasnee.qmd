@@ -1,0 +1,511 @@
+---
+title: "Uber Analytics Project"
+name: ttasnee
+format:
+  html:
+    self-contained: true
+---
+
+# Part 1
+
+# Intro
+
+### EDA
+
+Exploratory Data Analysis (EDA) is the process of **examining and visualizing a dataset** to understand its main characteristics before applying statistical models or machine learning. It involves summarizing data, identifying missing values or outliers, checking variable distributions, and uncovering relationships or patterns. In R, EDA is typically done using functions such as `summary()`, `str()`, and visualization tools like `ggplot2` to create histograms, bar charts, and scatterplots.
+
+### Research Question
+
+The goal of this project is to explore the **Uber NCR Ride Bookings** dataset to understand **ride performance, booking patterns, and customer-driver behaviors**.
+
+My research question is:
+
+> ## What factors influence customer satisfaction in Uber’s 2024 operations?
+
+This question helps identify service issues such as high cancellation rates, poor driver ratings, or inefficient routes.
+
+### Data Wrangling process?
+
+Data Wrangling is the process of **transforming raw data into a usable format** for analysis. For this project, the steps included:
+
+-   **Importing the CSV file** using `read.csv()`
+
+-   **Replacing “null” values with `NA`** to properly represent missing data
+
+-   **Converting data types**, such as `Date` to `Date` objects and `Time` to `hms` objects
+
+-   **Checking data structure and summaries** with `str()` and `summary()`
+
+-   **Removing NA values** or filtering out incomplete records for visualization
+
+    These steps ensure that the dataset is consistent and ready for accurate analysis.
+
+### Variables of Interest
+
+The dataset `ncr_ride_bookings` contains around **150,000 rows** (individual ride records) and **21 columns** (variables).
+
+Key variables of interest include:
+
+-   **Booking.Status** – shows whether rides were *Completed*, *Cancelled*, or *Incomplete*
+
+-   **Vehicle.Type** – identifies types of vehicles used (e.g., eBike, Sedan, Auto, Bike)
+
+-   **Booking.Value** – represents the total fare for the ride
+
+-   **Ride.Distance** – measures trip distance
+
+-   **Driver.Ratings** and **Customer.Rating** – measure satisfaction and performance
+
+By analyzing these variables, we can identify **patterns in ride success rates, cancellation behavior, and rating trends** across different vehicle types and payment methods.
+
+# Set Up
+
+Download all required libraries
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(forcats)
+library(tidyverse)
+library(hms)
+library(pillar)
+knitr::opts_chunk$set(warning = FALSE)
+
+```
+
+## Load Data
+
+Load data into dataframe
+
+```{r load-data}
+# Load CSV from the same folder as the .qmd
+ncr_ride_bookings <- read.csv("ncr_ride_bookings.csv", stringsAsFactors = FALSE)
+df <- ncr_ride_bookings
+
+# Quick check
+glimpse(df)
+head(df)
+```
+
+## Inspect and clean data
+
+Replace null with "NA"
+
+```{r}
+# Replace "null" with "NA"
+df <- as.data.frame(lapply(df, function(x) {
+  # Skip conversion for Date columns
+  if (inherits(x, "Date")) return(x)
+  
+  # Convert factors to characters first
+  if (is.factor(x)) x <- as.character(x)
+  
+  # Replace "null" or empty strings with NA
+  x[x == "null" | x == ""] <- NA
+  
+  return(x)
+}))
+
+# Verify
+head(df)
+colSums(is.na(df))
+```
+
+## Convert Dates
+
+```{r}
+# Check dates
+head(df$Date) 
+
+# Convert Dates
+df$Date <- as.Date(df$Date, format = "%Y-%m-%d")
+
+# Confirm it Worked
+str(df$Date)
+```
+
+# Part 2
+
+## Data Summary
+
+Show Information about variables, including length, class, and number of missing values
+
+```{r}
+# Basic summary
+summary(df)
+
+# Missing values per column
+colSums(is.na(df))
+```
+
+## Describe
+
+Removes NA by default
+
+```{r}
+library(psych)
+describe(df)
+```
+
+## Check Numeric Value Freq
+
+Shows Frequencies of each category in a variable
+
+```{r}
+# Booking status frequency
+table(df$Booking.Status)
+
+# Vehicle type frequency
+table(df$Vehicle.Type)
+
+# Payment methods
+table(df$Payment.Method)
+```
+
+## Convert to Numeric Value
+
+Converts Numeric Variables (Booking.Value, Ride.Distance, Driver.Ratings, Customer.Ratings, Avg.VTAT, Avg.CTAT)
+
+```{r}
+# Get names of Columns
+names(df)
+
+# Convert to Numeric
+num_cols <- c("Booking.Value", "Ride.Distance", "Driver.Ratings", "Customer.Rating", "Avg.VTAT", "Avg.CTAT")
+
+# Only convert those columns that exist in your dataset
+num_cols <- intersect(num_cols, names(df))
+
+df[num_cols] <- lapply(df[num_cols], function(x) as.numeric(as.character(x)))
+```
+
+## Summary of Numeric Values
+
+Shows the Summary of all Numeric Variables
+
+```{r}
+# Explore Numeric Types
+summary(df$Booking.Value)
+summary(df$Ride.Distance)
+summary(df$Driver.Ratings)
+summary(df$Customer.Rating)
+summary(df$Avg.VTAT)
+summary(df$Avg.CTAT)
+
+# Standard Deviation - NA removed
+sd(df$Booking.Value, na.rm = TRUE)
+sd(df$Ride.Distance, na.rm = TRUE)
+sd(df$Driver.Ratings, na.rm = TRUE)
+sd(df$Customer.Rating, na.rm = TRUE)
+sd(df$Avg.VTAT, na.rm = TRUE)
+sd(df$Avg.CTAT, na.rm = TRUE)
+```
+
+## Filter Customer Ratings
+
+Remove rows with no Customer.Rating
+
+```{r}
+sum(is.na(df$Customer.Rating))
+
+df_clean <- df %>% filter(!is.na(Customer.Rating))
+```
+
+## Summary Table
+
+Generate a png of the Summary Stats
+
+Show box plots of numeric variables
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+summary_table <- df_clean%>%
+  select(where(is.numeric)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable) %>%
+  summarise(
+    Mean = mean(Value, na.rm = TRUE),
+    Median = median(Value, na.rm = TRUE),
+    SD = sd(Value, na.rm = TRUE),
+    Min = min(Value, na.rm = TRUE),
+    Max = max(Value, na.rm = TRUE)
+  ) 
+
+summary_table
+
+# Install
+library(gridExtra)
+
+table_plot <- tableGrob(summary_table)
+
+ggsave("summary_table.png", table_plot, width = 10, height = 6)
+```
+
+## Box and Whisker Plots of Numeric Values
+
+```{r}
+ggplot(df, aes(y = Customer.Rating)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Customer Rating", y = "Customer Rating")
+
+ggplot(df, aes(y = Ride.Distance)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Ride Distance", y = "Ride Distance")
+
+ggplot(df, aes(y = Driver.Ratings)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Driver Ratings", y = "Driver Ratings")
+
+ggplot(df, aes(y = Avg.VTAT)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Avg.VTAT", y = "Avg.VTAT")
+
+ggplot(df, aes(y = Avg.CTAT)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Avg.CTAT", y = "Avg.CTAT")
+
+ggplot(df, aes(y = Booking.Value)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Booking Value", y = "Booking Value")
+
+```
+
+# Distribution
+
+## Customer Rating
+
+Customer Ratings **strongly skew** **left.**
+
+This means that there are more positive ratings than negative ratings. Little variance.
+
+```{r}
+  ggplot(df_clean, aes(x = Customer.Rating)) +
+  geom_histogram(binwidth = 0.5, fill = "red", color = "white") +
+  labs(title = "Distribution of Customer Ratings",
+       x = "Customer Rating",
+       y = "Frequency")
+
+# Save Graph
+# ggsave("customer_rating_histogram.png", plot = p, width = 8, height = 5)
+```
+
+## Booking Status Distribution
+
+**Strongly Skewed.** Little Variance.
+
+```{r}
+df %>%
+  mutate(Booking.Status = fct_infreq(Booking.Status)) %>%   # reorder by frequency
+  ggplot(aes(x = Booking.Status)) +
+  geom_bar(fill = "tomato") +
+  theme_minimal() +
+  labs(title = "Distribution of Booking Status (Sorted Descending)",
+       x = "Booking Status", y = "Number of Rides") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+## Driver Ratings Distributions
+
+**Strongly skewed left.**
+
+```{r}
+ggplot(df_clean, aes(x = Driver.Ratings)) +
+  geom_histogram(binwidth = 0.5, fill = "darkgreen", color = "white") +
+  labs(title = "Distribution of Driver Ratings",
+       x = "Driver Ratings",
+       y = "Frequency")
+```
+
+## Booking Value Distribution
+
+**Skewed Right**
+
+```{r}
+# Create bins for Booking.Value
+df <- df %>%
+  mutate(ValueBin = cut(Booking.Value,
+                        breaks = c(0, 100, 300, 500, 800, 1000, Inf),
+                        include.lowest = TRUE,
+                        labels = c("0–100", "100–300", "300–500", "500–800", "800–1000", "1000+")))
+
+# Drop missing values
+df_no_na <- df %>% filter(!is.na(ValueBin))
+
+# Plot Results as bar
+ggplot(df_no_na, aes(x = ValueBin)) +
+  geom_bar(fill = "darkorange") +
+  theme_minimal() +
+  labs(title = "Booking Value Distribution",
+       x = "Booking Value Range (In Dollars)", y = "Number of Rides")
+```
+
+## Ride Distance Distribution
+
+Skewed towards Auto
+
+```{r}
+#ggplot(df, aes(x = Ride.Distance)) +
+  #geom_histogram(bins = 30, fill = "darkgreen") +
+  #labs(title = "Distribution of Ride Distance")
+
+names(df)
+rm(Ride.Distance)
+
+df$RideDistBin <- cut(
+  df$Ride.Distance,
+  breaks = c(0, 5, 15, 30, Inf),
+  labels = c("0–5 km", "5–15 km", "15–30 km", "30+ km"),
+  right = FALSE
+)
+
+# Drop NA levels
+df_binned <- df %>% filter(!is.na(RideDistBin))
+
+ggplot(df_binned, aes(x = RideDistBin)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Ride Distance Categories",
+       x = "Distance Category", y = "Number of Rides")
+
+```
+
+## Vehicle Type Distribution
+
+```{r}
+df %>% 
+  filter(!is.na(Vehicle.Type)) %>% 
+  ggplot(aes(x = Vehicle.Type)) +
+  geom_bar(fill = "purple") +
+  labs(title = "Vehicle Type Distribution")
+
+```
+
+# Correlation
+
+## Correlation Analysis
+
+Little to no correlation. There isn't a significant relationship between Customer.Rating and numeric variables.
+
+```{r}
+numeric_vars <- df_clean %>%
+  select(Customer.Rating, Driver.Ratings, Ride.Distance,
+         Booking.Value, Avg.VTAT, Avg.CTAT)
+
+cor_matrix <- cor(numeric_vars, use = "complete.obs")
+cor_matrix
+```
+
+## Spearman Corr Analysis
+
+I used Spearman because Customer.Rating violates normality
+
+```{r}
+numeric_cols <- df_clean[, sapply(df_clean, is.numeric)]
+cor(numeric_cols, method = "spearman")
+```
+
+## Booking Status vs Customer Rating
+
+```{r}
+table(df$Booking.Status, !is.na(df$Customer.Rating))
+
+table(df_clean$Booking.Status)
+```
+
+```{r}
+df$HasRating <- !is.na(df$Customer.Rating)
+
+table(df$Booking.Status, df$HasRating)
+
+chisq.test(df$Booking.Status, df$HasRating)
+```
+
+## Vehicle Type vs Customer Rating
+
+### Kruskal-Wallis Test
+
+I used this method because Customer.Rating is not normally distributed.
+
+**Result:** There is little relationship between Vehicle Type and Customer Rating.
+
+```{r}
+# Ensure Vehicle.Type is a factor
+df_clean$Vehicle.Type <- as.factor(df_clean$Vehicle.Type)
+
+# Kruskal-Wallis test
+kruskal.test(Customer.Rating ~ Vehicle.Type, data = df_clean)
+
+pairwise.wilcox.test(df$Customer.Rating, df$Vehicle.Type,
+                     p.adjust.method = "bonferroni")
+```
+
+```{r}
+ggplot(df_clean, aes(x = Booking.Status, y = Customer.Rating)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(title = "Customer Rating by Booking Status")
+```
+
+## Linear Regression Model
+
+No significant Linear Regression Model
+
+All the p-values are greater than 0.05.
+
+```{r}
+model <- lm(Customer.Rating ~ Driver.Ratings + Ride.Distance +
+            Booking.Value + Avg.VTAT + Avg.CTAT, data = df_clean)
+
+summary(model)
+```
+
+### Residual Plots
+
+```{r}
+par(mfrow = c(2, 2))
+plot(model)
+
+```
+
+```{r}
+df_clean$predicted <- predict(model)
+
+ggplot(df_clean, aes(x = predicted, y = Customer.Rating)) +
+  geom_point(alpha = 0.3, color = "blue") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Predicted vs Actual Customer Rating",
+       x = "Predicted Rating",
+       y = "Actual Rating")
+```
+
+```{r}
+ggplot(df, aes(x = Vehicle.Type, y = Customer.Rating)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Customer Rating by Vehicle Type")
+```
+
+```{r}
+df %>%
+  group_by(Vehicle.Type) %>%
+  summarize(mean_rating = mean(Customer.Rating, na.rm = TRUE)) %>%
+  ggplot(aes(x = Vehicle.Type, y = mean_rating)) +
+  geom_col(fill = "darkgreen") +
+  labs(title = "Average Customer Rating by Vehicle Type")
+
+```
+
+## Ordinal Logistic Regression
+
+Instead of Linear Regression, I used **Ordinal Logistic Regression**
+
+```{r}
+library(MASS)
+
+df_clean$Customer.Rating <- as.factor(df_clean$Customer.Rating)
+
+model <- polr(Customer.Rating ~ Driver.Ratings + Ride.Distance +
+            Booking.Value + Avg.VTAT + Avg.CTAT, data = df_clean, Hess = TRUE)
+summary(model)
+```
